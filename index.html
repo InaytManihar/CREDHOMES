@@ -172,10 +172,8 @@ tbody tr:last-child td{border-bottom:none}
 <div id="toast"></div>
 
 <script>
-/* ── Google Sheets Config ── */
-const SHEET_ID = '1gdG7TIJgwRt6J-zsss8L1Ez7EuhZHUBCR47A0KmcqUU';
-const SHEET_NAME = 'Sheet1'; // change if your sheet tab has a different name
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+/* ── Google Apps Script URL (Real-time, no cache) ── */
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwtuoNe9VNKyWquXkC2HaSC9JNNrs87W8vQHu6nXMuDJJSdKgXVxRKlhQqNTZxu8pLD/exec';
 
 const COLUMNS = [
   {key:'project',label:'Project Name',type:'text'},
@@ -220,86 +218,67 @@ function setSyncStatus(ok, text){
 const d=new Date();
 document.getElementById('headerDate').textContent=d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
 
-/* ── CSV Parser (handles quoted fields with commas) ── */
-function parseCSV(text){
-  const lines=[];
-  let cur='',inQ=false,row=[];
-  for(let i=0;i<text.length;i++){
-    const ch=text[i];
-    if(ch==='"'){
-      if(inQ&&text[i+1]==='"'){cur+='"';i++;}
-      else inQ=!inQ;
-    } else if(ch===','&&!inQ){
-      row.push(cur.trim());cur='';
-    } else if((ch==='\n'||ch==='\r')&&!inQ){
-      if(cur||row.length){row.push(cur.trim());lines.push(row);}
-      row=[];cur='';
-      if(ch==='\r'&&text[i+1]==='\n')i++;
-    } else cur+=ch;
-  }
-  if(cur||row.length){row.push(cur.trim());lines.push(row);}
-  return lines;
-}
 
-/* ── Fetch from Google Sheets ── */
+/* ── Fetch from Apps Script (real-time JSON) ── */
 async function fetchSheetData(){
   const btn=document.getElementById('refreshBtn');
   btn.classList.add('spinning');
   setSyncStatus(false,'Syncing…');
-
-  try {
-    const resp = await fetch(CSV_URL);
-    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
-    const rows = parseCSV(text);
-
-    if(rows.length < 2){
-      throw new Error('Sheet appears empty or has no data rows.');
+  try{
+    const resp=await fetch(APPS_SCRIPT_URL);
+    if(!resp.ok) throw new Error('HTTP error '+resp.status);
+    const json=await resp.json();
+    if(!Array.isArray(json)||json.length===0) throw new Error('No data returned from sheet.');
+    function toNum(v){
+      if(v===''||v===null||v===undefined) return '';
+      const n=parseFloat(String(v).replace(/[^\d.-]/g,''));
+      return isNaN(n)?'':n;
     }
-
-    // Skip header row (row index 0), parse data rows
-    data = rows.slice(1)
-      .filter(r => r.some(c => c !== ''))
-      .map((r, i) => ({
-        id: i+1,
-        project:           r[0]  || '',
-        tower:             r[1]  || '',
-        unsoldUnit:        r[2]  !== '' ? parseFloat(r[2])  : '',
-        unsoldCarpet:      r[3]  !== '' ? parseFloat(r[3])  : '',
-        agreementValue:    r[4]  !== '' ? parseFloat(r[4])  : '',
-        interest24_1yr:    r[5]  !== '' ? parseFloat(r[5])  : '',
-        interest24_1yr_col:r[6]  !== '' ? parseFloat(r[6])  : '',
-        sqftRate12m:       r[7]  !== '' ? parseFloat(r[7])  : '',
-        sqftRate6m:        r[8]  !== '' ? parseFloat(r[8])  : '',
-        currentRate:       r[9]  !== '' ? parseFloat(r[9])  : '',
-        sqftEsc12m:        r[10] !== '' ? parseFloat(r[10]) : '',
-        sqftEsc6m:         r[11] !== '' ? parseFloat(r[11]) : '',
-        controlDamage:     r[12] !== '' ? parseFloat(r[12]) : '',
-      }))
-      .filter(r => r.project !== ''); // skip truly empty rows
-
-    const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-    setSyncStatus(true, `Synced at ${now}`);
+    function getVal(row){
+      const norm={};
+      Object.keys(row).forEach(k=>{norm[k.trim().toUpperCase()]=row[k];});
+      return norm;
+    }
+    data=json.map((row,i)=>{
+      const r=getVal(row);
+      return {
+        id:i+1,
+        project:           String(r['PROJECT NAME']||''),
+        tower:             String(r['TOWER NAME']||r['TOWER']||''),
+        unsoldUnit:        toNum(r['UNSOLD UNIT']),
+        unsoldCarpet:      toNum(r['UNSOLD CARPET AREA']),
+        agreementValue:    toNum(r['SUM OF AGREEMENT VALUE REMAINING']),
+        interest24_1yr:    toNum(r['INTEREST 24% ONE YEAR']||r['INTEREST 24% (1 YEAR )']||r['INTEREST 24% (1YEAR )']),
+        interest24_1yr_col:toNum(r['INTEREST 24% (1YEAR ) COL']||r['INTEREST 24%(1YEAR ) COL']),
+        sqftRate12m:       toNum(r['SQ FT RATE ESCALATION (12 MONTH)']),
+        sqftRate6m:        toNum(r['SQ FT RATE ESCALATION (6 MONTH)']),
+        currentRate:       toNum(r['CURRENT RATE']),
+        sqftEsc12m:        toNum(r['SQ FT RATE ESCALATION (12 MONTH) K']),
+        sqftEsc6m:         toNum(r['SQ FT RATE ESCALATION (6 MONTH) L']),
+        controlDamage:     toNum(r['CONTROL DAMAGE OF LATE RECOVERY']),
+      };
+    }).filter(r=>r.project!=='');
+    const now=new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    setSyncStatus(true,'Synced at '+now);
     document.getElementById('errorBox').style.display='none';
-    toast(`✓ Loaded ${data.length} rows from Google Sheets`);
+    toast('✓ Loaded '+data.length+' rows — real-time');
     render();
-
-  } catch(err){
+  }catch(err){
     setSyncStatus(false,'Sync failed');
-    const box=document.getElementById('errorBox');
-    box.style.display='block';
-    box.innerHTML=`<div class="error-box">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b52b3e" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <div class="error-box-text">
-        <strong>Could not load Google Sheet data</strong>
-        ${err.message}<br><br>
-        Make sure your Google Sheet is set to <strong>"Anyone with the link can view"</strong> (Share → Change to anyone with the link).
-      </div>
-    </div>`;
-    toast('✗ Failed to fetch sheet data');
-  } finally {
+    showError(err.message);
+  }finally{
     btn.classList.remove('spinning');
   }
+}
+
+function showError(msg){
+  const box=document.getElementById('errorBox');
+  box.style.display='block';
+  box.innerHTML=`<div class="error-box">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b52b3e" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <div class="error-box-text"><strong>Could not load Google Sheet data</strong> — ${msg}</div>
+  </div>`;
+  toast('✗ Failed to fetch sheet data');
 }
 
 /* ── Filters ── */
@@ -423,9 +402,9 @@ function render(){
   renderCharts(rows);
 }
 
-/* ── Auto-refresh every 60 seconds ── */
+/* ── Auto-refresh every 5 seconds (real-time via Apps Script) ── */
 fetchSheetData();
-setInterval(fetchSheetData, 60000);
+setInterval(fetchSheetData, 5000);
 </script>
 </body>
 </html>
