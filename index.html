@@ -461,9 +461,9 @@ function hashStr(s){ let h=0; for(let i=0;i<s.length;i++){h=(h<<5)-h+s.charCodeA
    FETCH — only re-renders if data actually changed
 ══════════════════════════════════════════════════════ */
 const PROXIES = [
+  u => u,  /* direct — works on GitHub Pages / any server */
   u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-  u => u
+  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
 ];
 
 async function fetchCSV(){
