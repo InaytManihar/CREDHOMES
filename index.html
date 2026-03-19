@@ -129,7 +129,7 @@ tbody tr:last-child td{border-bottom:none}
       <select id="filterTower" onchange="applyFilters()" disabled><option value="">—</option></select>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
-      <div class="sync-status"><div class="sync-dot" id="syncDot"></div><span id="syncText">Not synced</span></div>
+      <div class="sync-status" style="display:none"><div class="sync-dot" id="syncDot"></div><span id="syncText">Not synced</span></div>
       <button class="refresh-btn" id="refreshBtn" onclick="fetchSheetData()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M20 10A8 8 0 0 0 6.93 6.93M4 14a8 8 0 0 0 13.07 3.07"/></svg>
         Refresh from Google Sheets
