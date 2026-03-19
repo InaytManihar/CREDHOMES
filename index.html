@@ -130,7 +130,7 @@ tbody tr:last-child td{border-bottom:none}
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
       <div class="sync-status" style="display:none"><div class="sync-dot" id="syncDot"></div><span id="syncText">Not synced</span></div>
-      <button class="refresh-btn" id="refreshBtn" onclick="fetchSheetData()">
+      <button class="refresh-btn" id="refreshBtn" onclick="lastDataHash='';fetchSheetData()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M20 10A8 8 0 0 0 6.93 6.93M4 14a8 8 0 0 0 13.07 3.07"/></svg>
         Refresh from Google Sheets
       </button>
@@ -258,10 +258,7 @@ async function fetchSheetData(){
         controlDamage:     toNum(r['CONTROL DAMAGE OF LATE RECOVERY']),
       };
     }).filter(r=>r.project!=='');
-    const now=new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    setSyncStatus(true,'Synced at '+now);
     document.getElementById('errorBox').style.display='none';
-    toast('✓ Loaded '+data.length+' rows — real-time');
     render();
   }catch(err){
     setSyncStatus(false,'Sync failed');
@@ -393,8 +390,14 @@ function renderTable(rows){
   document.getElementById('tableBody').innerHTML=html;
 }
 
-/* ── Main Render ── */
-function render(){
+/* ── Change Detection ── */
+let lastDataHash = '';
+
+/* ── Main Render (only runs if data actually changed) ── */
+function render(force){
+  const newHash = JSON.stringify(data);
+  if(!force && newHash === lastDataHash) return;
+  lastDataHash = newHash;
   buildFilters();
   const rows=getFiltered();
   renderKPI(rows);
@@ -402,9 +405,9 @@ function render(){
   renderCharts(rows);
 }
 
-/* ── Auto-refresh every 5 seconds (real-time via Apps Script) ── */
+/* ── Auto-refresh every 30 seconds silently in background ── */
 fetchSheetData();
-setInterval(fetchSheetData, 5000);
+setInterval(fetchSheetData, 30000);
 </script>
 </body>
 </html>
