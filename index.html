@@ -130,7 +130,7 @@ tbody tr:last-child td{border-bottom:none}
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
       <div class="sync-status" style="display:none"><div class="sync-dot" id="syncDot"></div><span id="syncText">Not synced</span></div>
-      <button class="refresh-btn" id="refreshBtn" onclick="lastDataHash='';fetchSheetData()">
+      <button class="refresh-btn" id="refreshBtn" onclick="fetchSheetData(true)">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M20 10A8 8 0 0 0 6.93 6.93M4 14a8 8 0 0 0 13.07 3.07"/></svg>
         Refresh from Google Sheets
       </button>
@@ -172,8 +172,24 @@ tbody tr:last-child td{border-bottom:none}
 <div id="toast"></div>
 
 <script>
-/* ── Google Apps Script URL (Real-time, no cache) ── */
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwtuoNe9VNKyWquXkC2HaSC9JNNrs87W8vQHu6nXMuDJJSdKgXVxRKlhQqNTZxu8pLD/exec';
+/* ── Google Sheets Published CSV URL ── */
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTLjQmADnolw1mCpeGIXYFiieCbk1tvzVDzOvdY3-Z-grtBBHysb3nVzYxvUKA0XCyiIoAiGxhb3Vbz/pub?output=csv';
+
+/* ── CSV Parser ── */
+function parseCSV(text){
+  const rows=[];let cur='',inQ=false,row=[];
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(ch==='"'){if(inQ&&text[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
+    else if(ch===','&&!inQ){row.push(cur.trim());cur='';}
+    else if((ch==='\n'||ch==='\r')&&!inQ){
+      if(cur||row.length){row.push(cur.trim());rows.push(row);}
+      row=[];cur='';if(ch==='\r'&&text[i+1]==='\n')i++;
+    }else cur+=ch;
+  }
+  if(cur||row.length){row.push(cur.trim());rows.push(row);}
+  return rows;
+}
 
 const COLUMNS = [
   {key:'project',label:'Project Name',type:'text'},
@@ -219,52 +235,49 @@ const d=new Date();
 document.getElementById('headerDate').textContent=d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
 
 
-/* ── Fetch from Apps Script (real-time JSON) ── */
-async function fetchSheetData(){
+/* ── Fetch from Published CSV ── */
+async function fetchSheetData(manual=false){
   const btn=document.getElementById('refreshBtn');
-  btn.classList.add('spinning');
-  setSyncStatus(false,'Syncing…');
+  if(manual) btn.classList.add('spinning');
   try{
-    const resp=await fetch(APPS_SCRIPT_URL);
+    const resp=await fetch(CSV_URL+'&t='+Date.now());
     if(!resp.ok) throw new Error('HTTP error '+resp.status);
-    const json=await resp.json();
-    if(!Array.isArray(json)||json.length===0) throw new Error('No data returned from sheet.');
-    function toNum(v){
-      if(v===''||v===null||v===undefined) return '';
-      const n=parseFloat(String(v).replace(/[^\d.-]/g,''));
-      return isNaN(n)?'':n;
-    }
-    function getVal(row){
-      const norm={};
-      Object.keys(row).forEach(k=>{norm[k.trim().toUpperCase()]=row[k];});
-      return norm;
-    }
-    data=json.map((row,i)=>{
-      const r=getVal(row);
-      return {
+    const text=await resp.text();
+    const rows=parseCSV(text);
+    if(rows.length<2) throw new Error('Sheet appears empty.');
+    const newData=rows.slice(1)
+      .filter(r=>r.some(c=>c!==''))
+      .map((r,i)=>({
         id:i+1,
-        project:           String(r['PROJECT NAME']||''),
-        tower:             String(r['TOWER NAME']||r['TOWER']||''),
-        unsoldUnit:        toNum(r['UNSOLD UNIT']),
-        unsoldCarpet:      toNum(r['UNSOLD CARPET AREA']),
-        agreementValue:    toNum(r['SUM OF AGREEMENT VALUE REMAINING']),
-        interest24_1yr:    toNum(r['INTEREST 24% ONE YEAR']||r['INTEREST 24% (1 YEAR )']||r['INTEREST 24% (1YEAR )']),
-        interest24_1yr_col:toNum(r['INTEREST 24% (1YEAR ) COL']||r['INTEREST 24%(1YEAR ) COL']),
-        sqftRate12m:       toNum(r['SQ FT RATE ESCALATION (12 MONTH)']),
-        sqftRate6m:        toNum(r['SQ FT RATE ESCALATION (6 MONTH)']),
-        currentRate:       toNum(r['CURRENT RATE']),
-        sqftEsc12m:        toNum(r['SQ FT RATE ESCALATION (12 MONTH) K']),
-        sqftEsc6m:         toNum(r['SQ FT RATE ESCALATION (6 MONTH) L']),
-        controlDamage:     toNum(r['CONTROL DAMAGE OF LATE RECOVERY']),
-      };
-    }).filter(r=>r.project!=='');
-    document.getElementById('errorBox').style.display='none';
-    render();
+        project:           r[0]||'',
+        tower:             r[1]||'',
+        unsoldUnit:        r[2]!==''?parseFloat(r[2]):'',
+        unsoldCarpet:      r[3]!==''?parseFloat(r[3]):'',
+        agreementValue:    r[4]!==''?parseFloat(r[4]):'',
+        interest24_1yr:    r[5]!==''?parseFloat(r[5]):'',
+        interest24_1yr_col:r[6]!==''?parseFloat(r[6]):'',
+        sqftRate12m:       r[7]!==''?parseFloat(r[7]):'',
+        sqftRate6m:        r[8]!==''?parseFloat(r[8]):'',
+        currentRate:       r[9]!==''?parseFloat(r[9]):'',
+        sqftEsc12m:        r[10]!==''?parseFloat(r[10]):'',
+        sqftEsc6m:         r[11]!==''?parseFloat(r[11]):'',
+        controlDamage:     r[12]!==''?parseFloat(r[12]):'',
+      }))
+      .filter(r=>r.project!=='');
+
+    // Only re-render if data actually changed
+    const newHash=JSON.stringify(newData);
+    if(newHash!==lastDataHash){
+      data=newData;
+      lastDataHash=newHash;
+      document.getElementById('errorBox').style.display='none';
+      render();
+      if(manual) toast('✓ Data updated from Google Sheets');
+    }
   }catch(err){
-    setSyncStatus(false,'Sync failed');
-    showError(err.message);
+    if(manual) showError(err.message);
   }finally{
-    btn.classList.remove('spinning');
+    if(manual) btn.classList.remove('spinning');
   }
 }
 
@@ -349,16 +362,38 @@ const bOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{
 function groupBy(rows,key,vk){const m={};rows.forEach(r=>{const k=r[key]||'N/A';m[k]=(m[k]||0)+num(r[vk])});return m;}
 
 function renderCharts(rows){
-  Object.values(charts).forEach(c=>c.destroy());charts={};
   const uMap=groupBy(rows,'project','unsoldUnit');
-  charts.units=new Chart(document.getElementById('chartUnits'),{type:'bar',data:{labels:Object.keys(uMap),datasets:[{label:'Unsold Units',data:Object.values(uMap),backgroundColor:PAL,borderRadius:5,borderSkipped:false}]},options:{...bOpts,plugins:{...bOpts.plugins,legend:{display:false}}}});
   const vMap=groupBy(rows,'project','agreementValue');
-  charts.value=new Chart(document.getElementById('chartValue'),{type:'bar',data:{labels:Object.keys(vMap),datasets:[{label:'Agr. Value',data:Object.values(vMap),backgroundColor:'#0b6e5c',borderRadius:5,borderSkipped:false}]},options:{...bOpts,plugins:{...bOpts.plugins,legend:{display:false}}}});
   const iMap=groupBy(rows,'project','interest24_1yr');
-  charts.interest=new Chart(document.getElementById('chartInterest'),{type:'doughnut',data:{labels:Object.keys(iMap),datasets:[{data:Object.values(iMap),backgroundColor:PAL,borderWidth:2,borderColor:'#fff',hoverOffset:6}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{color:tc,font:{family:'IBM Plex Sans',size:10},boxWidth:10,padding:14}}}}});
   const projs=[...new Set(rows.map(r=>r.project))];
   const e12=projs.map(p=>rows.filter(r=>r.project===p).reduce((s,r)=>s+num(r.sqftEsc12m),0));
   const e6=projs.map(p=>rows.filter(r=>r.project===p).reduce((s,r)=>s+num(r.sqftEsc6m),0));
+
+  // If charts already exist, update data in-place (no blink, no destroy)
+  if(charts.units){
+    charts.units.data.labels=Object.keys(uMap);
+    charts.units.data.datasets[0].data=Object.values(uMap);
+    charts.units.update('none');
+
+    charts.value.data.labels=Object.keys(vMap);
+    charts.value.data.datasets[0].data=Object.values(vMap);
+    charts.value.update('none');
+
+    charts.interest.data.labels=Object.keys(iMap);
+    charts.interest.data.datasets[0].data=Object.values(iMap);
+    charts.interest.update('none');
+
+    charts.esc.data.labels=projs;
+    charts.esc.data.datasets[0].data=e12;
+    charts.esc.data.datasets[1].data=e6;
+    charts.esc.update('none');
+    return;
+  }
+
+  // First time — create charts
+  charts.units=new Chart(document.getElementById('chartUnits'),{type:'bar',data:{labels:Object.keys(uMap),datasets:[{label:'Unsold Units',data:Object.values(uMap),backgroundColor:PAL,borderRadius:5,borderSkipped:false}]},options:{...bOpts,plugins:{...bOpts.plugins,legend:{display:false}}}});
+  charts.value=new Chart(document.getElementById('chartValue'),{type:'bar',data:{labels:Object.keys(vMap),datasets:[{label:'Agr. Value',data:Object.values(vMap),backgroundColor:'#0b6e5c',borderRadius:5,borderSkipped:false}]},options:{...bOpts,plugins:{...bOpts.plugins,legend:{display:false}}}});
+  charts.interest=new Chart(document.getElementById('chartInterest'),{type:'doughnut',data:{labels:Object.keys(iMap),datasets:[{data:Object.values(iMap),backgroundColor:PAL,borderWidth:2,borderColor:'#fff',hoverOffset:6}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{color:tc,font:{family:'IBM Plex Sans',size:10},boxWidth:10,padding:14}}}}});
   charts.esc=new Chart(document.getElementById('chartEscalation'),{type:'bar',data:{labels:projs,datasets:[{label:'12 Month',data:e12,backgroundColor:'#b8882a',borderRadius:4,borderSkipped:false},{label:'6 Month',data:e6,backgroundColor:'#b52b3e',borderRadius:4,borderSkipped:false}]},options:{...bOpts}});
 }
 
@@ -393,11 +428,8 @@ function renderTable(rows){
 /* ── Change Detection ── */
 let lastDataHash = '';
 
-/* ── Main Render (only runs if data actually changed) ── */
-function render(force){
-  const newHash = JSON.stringify(data);
-  if(!force && newHash === lastDataHash) return;
-  lastDataHash = newHash;
+/* ── Main Render ── */
+function render(){
   buildFilters();
   const rows=getFiltered();
   renderKPI(rows);
@@ -407,7 +439,7 @@ function render(force){
 
 /* ── Auto-refresh every 30 seconds silently in background ── */
 fetchSheetData();
-setInterval(fetchSheetData, 30000);
+setInterval(()=>fetchSheetData(false), 30000);
 </script>
 </body>
 </html>
